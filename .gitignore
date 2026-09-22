@@ -2,5 +2,7 @@ backend/.venv/
 backend/__pycache__/
 backend/core/__pycache__/
 frontend/node_modules/
-frontend/dist/
 *.pyc
+
+# frontend/dist SÍ se versiona: PythonAnywhere free no necesita Node para
+# construirlo, solo Flask sirviendo el build ya generado (ver README).

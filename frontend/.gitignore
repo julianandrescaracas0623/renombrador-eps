@@ -8,9 +8,12 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
 dist-ssr
 *.local
+
+# dist SÍ se versiona: es el build servido directamente por backend/app.py
+# en PythonAnywhere. Reconstruir con `npm run build` tras cada cambio y
+# volver a comitear antes de desplegar.
 
 # Editor directories and files
 .vscode/*

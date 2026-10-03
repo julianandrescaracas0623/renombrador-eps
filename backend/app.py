@@ -58,27 +58,37 @@ def procesar():
     contenedor_buffer = io.BytesIO()
     resumen_por_archivo = []
 
-    with zipfile.ZipFile(contenedor_buffer, "w", zipfile.ZIP_DEFLATED) as contenedor:
-        for archivo in archivos:
-            nombre_original = secure_filename(archivo.filename or "archivo.zip")
-            base = Path(nombre_original).stem
-            zip_bytes = archivo.read()
+    if eps.modo_salida == "soporte_rips":
+        entradas = [
+            (secure_filename(archivo.filename or "archivo.zip"), archivo.read())
+            for archivo in archivos
+        ]
 
-            try:
-                if eps.modo_salida == "unico":
-                    resultado_bytes, resumen = modo_unico.procesar(zip_bytes, mapeo)
-                    contenedor.writestr(f"{base}.zip", resultado_bytes)
-                elif eps.modo_salida == "soporte_rips":
-                    resultado = modo_soporte_rips.procesar(zip_bytes, mapeo)
-                    resumen = resultado["resumen"]
-                    contenedor.writestr(f"{base}_SOPORTE.zip", resultado["soporte"])
-                    contenedor.writestr(f"{base}_RIPS.zip", resultado["rips"])
-                else:
-                    return jsonify({"error": f"Modo de salida no soportado: {eps.modo_salida}"}), 500
-            except zipfile.BadZipFile:
-                return jsonify({"error": f"'{nombre_original}' no es un ZIP válido."}), 400
+        try:
+            resultado = modo_soporte_rips.procesar(entradas, mapeo)
+        except modo_soporte_rips.ZipInvalido as error:
+            return jsonify({"error": f"'{error.archivo}' no es un ZIP válido."}), 400
 
-            resumen_por_archivo.append({"archivo": nombre_original, **resumen})
+        with zipfile.ZipFile(contenedor_buffer, "w", zipfile.ZIP_DEFLATED) as contenedor:
+            contenedor.writestr("Sop.zip", resultado["soporte"])
+            contenedor.writestr("Rips.zip", resultado["rips"])
+
+        resumen_por_archivo = resultado["resumenes"]
+    elif eps.modo_salida == "unico":
+        with zipfile.ZipFile(contenedor_buffer, "w", zipfile.ZIP_DEFLATED) as contenedor:
+            for archivo in archivos:
+                nombre_original = secure_filename(archivo.filename or "archivo.zip")
+                base = Path(nombre_original).stem
+
+                try:
+                    resultado_bytes, resumen = modo_unico.procesar(archivo.read(), mapeo)
+                except zipfile.BadZipFile:
+                    return jsonify({"error": f"'{nombre_original}' no es un ZIP válido."}), 400
+
+                contenedor.writestr(f"{base}.zip", resultado_bytes)
+                resumen_por_archivo.append({"archivo": nombre_original, **resumen})
+    else:
+        return jsonify({"error": f"Modo de salida no soportado: {eps.modo_salida}"}), 500
 
     job_id = jobs.crear_job(contenedor_buffer.getvalue(), f"resultado_{eps.id}.zip")
 

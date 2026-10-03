@@ -2,7 +2,8 @@
 
 modo_salida:
   - "unico"         -> un solo ZIP renombrado (lógica de RENOMBRADOR-1.0.ipynb, hoy usada por SOS)
-  - "soporte_rips"  -> separa PDF en SOPORTE.zip y JSON/XML en RIPS.zip
+  - "soporte_rips"  -> separa PDF en Sop.zip y JSON/XML en Rips.zip,
+                       cada factura en una carpeta con solo el número
                        (lógica de RENOMBRADOR-2.0.ipynb, hoy usada por FOMAG)
 """
 

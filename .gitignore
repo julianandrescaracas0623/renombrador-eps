@@ -2,6 +2,8 @@ backend/.venv/
 backend/__pycache__/
 backend/core/__pycache__/
 frontend/node_modules/
+Documents/
+REQUERIMIENTOS.md
 *.pyc
 
 # frontend/dist SÍ se versiona: PythonAnywhere free no necesita Node para

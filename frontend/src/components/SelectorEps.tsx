@@ -9,7 +9,7 @@ interface Props {
 
 const DESCRIPCION_MODO: Record<string, string> = {
   unico: 'Entrega un solo ZIP renombrado.',
-  soporte_rips: 'Separa en dos ZIP: SOPORTE y RIPS.',
+  soporte_rips: 'Separa en Sop.zip y Rips.zip, con una carpeta por factura.',
 }
 
 export default function SelectorEps({ epsList, epsSeleccionada, onCambiar }: Props) {

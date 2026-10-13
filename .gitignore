@@ -1,6 +1,7 @@
 backend/.venv/
 backend/__pycache__/
 backend/core/__pycache__/
+backend/resultados_tmp/
 frontend/node_modules/
 Documents/
 REQUERIMIENTOS.md

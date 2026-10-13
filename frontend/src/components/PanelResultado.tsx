@@ -1,29 +1,25 @@
-import type { ProcesarResponse } from '../api'
-import { urlDescarga } from '../api'
-import { IconBroom, IconDownload, IconWarning } from '../icons'
+import type { ResumenArchivo } from '../api'
+import { IconWarning } from '../icons'
 
 interface Props {
-  resultado: ProcesarResponse
-  onLimpiar: () => void
+  resumen: ResumenArchivo[]
 }
 
-export default function PanelResultado({ resultado, onLimpiar }: Props) {
-  const archivosConFacturasSinCuv = resultado.resumen.filter(
+export default function PanelResultado({ resumen }: Props) {
+  const archivosConFacturasSinCuv = resumen.filter(
     (item) => (item.facturas_sin_cuv ?? []).length > 0,
   )
 
-  const totalPdfs = resultado.resumen.reduce((acc, r) => acc + r.pdfs_totales, 0)
-  const totalRenombrados = resultado.resumen.reduce((acc, r) => acc + r.pdfs_renombrados, 0)
-  const totalConflictos = resultado.resumen.reduce((acc, r) => acc + (r.conflictos_duplicados ?? 0), 0)
+  const totalPdfs = resumen.reduce((acc, r) => acc + r.pdfs_totales, 0)
+  const totalRenombrados = resumen.reduce((acc, r) => acc + r.pdfs_renombrados, 0)
+  const totalConflictos = resumen.reduce((acc, r) => acc + (r.conflictos_duplicados ?? 0), 0)
 
   return (
-    <div className="panel-resultado">
-      <h2>Resultado — {resultado.eps}</h2>
-
+    <div className="detalle-resultado">
       <div className="stats-grid">
         <div className="stat-card">
-          <span className="stat-valor">{resultado.resumen.length}</span>
-          <span className="stat-etiqueta">Archivo{resultado.resumen.length === 1 ? '' : 's'}</span>
+          <span className="stat-valor">{resumen.length}</span>
+          <span className="stat-etiqueta">Archivo{resumen.length === 1 ? '' : 's'}</span>
         </div>
         <div className="stat-card">
           <span className="stat-valor">{totalPdfs}</span>
@@ -39,6 +35,7 @@ export default function PanelResultado({ resultado, onLimpiar }: Props) {
         </div>
       </div>
 
+      <div className="tabla-scroll">
       <table className="tabla-resumen">
         <thead>
           <tr>
@@ -50,7 +47,7 @@ export default function PanelResultado({ resultado, onLimpiar }: Props) {
           </tr>
         </thead>
         <tbody>
-          {resultado.resumen.map((item) => (
+          {resumen.map((item) => (
             <tr key={item.archivo}>
               <td>{item.archivo}</td>
               <td>{item.pdfs_totales}</td>
@@ -61,6 +58,7 @@ export default function PanelResultado({ resultado, onLimpiar }: Props) {
           ))}
         </tbody>
       </table>
+      </div>
 
       {archivosConFacturasSinCuv.length > 0 && (
         <div className="aviso-cuv">
@@ -81,17 +79,6 @@ export default function PanelResultado({ resultado, onLimpiar }: Props) {
           </ul>
         </div>
       )}
-
-      <div className="panel-resultado-acciones">
-        <a className="boton-descarga" href={urlDescarga(resultado.job_id)} download>
-          <IconDownload size={18} />
-          Descargar resultado
-        </a>
-        <button type="button" className="boton-secundario" onClick={onLimpiar}>
-          <IconBroom size={15} />
-          Limpiar y empezar de nuevo
-        </button>
-      </div>
     </div>
   )
 }

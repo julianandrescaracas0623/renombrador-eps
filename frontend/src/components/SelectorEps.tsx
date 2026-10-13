@@ -9,6 +9,7 @@ interface Props {
 
 const DESCRIPCION_MODO: Record<string, string> = {
   unico: 'Entrega un solo ZIP renombrado.',
+  carpetas: 'Entrega un ZIP con las carpetas soportes, rips y cuv (sin XML).',
   soporte_rips: 'Separa en Sop.zip y Rips.zip, con una carpeta por factura.',
 }
 

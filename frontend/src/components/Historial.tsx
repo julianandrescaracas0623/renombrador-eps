@@ -1,3 +1,4 @@
+import { AVISOS } from '../avisos'
 import type { ResumenArchivo } from '../api'
 import { useEffect } from 'react'
 import { IconCerrar, IconChevron, IconDownload, IconSpinner, IconTrash, IconWarning } from '../icons'
@@ -122,7 +123,7 @@ export default function Historial({
             {entradas.map((entrada) => {
               const disponible = estaDisponible(entrada)
               const totalRenombrados = entrada.resumen.reduce((acc, r) => acc + r.pdfs_renombrados, 0)
-              const conAvisos = entrada.resumen.some((r) => (r.facturas_sin_cuv ?? []).length > 0)
+              const conAvisos = entrada.resumen.some((r) => AVISOS.some(({ campo }) => (r[campo] ?? []).length > 0))
               const estaAbierta = abierta === entrada.id
 
               return (
@@ -153,7 +154,7 @@ export default function Historial({
                         </span>
                         <span className="historial-eps">{entrada.eps}</span>
                         {conAvisos && (
-                          <span className="historial-aviso" title="Hay facturas sin CUV">
+                          <span className="historial-aviso" title="Hay facturas con documentos faltantes">
                             <IconWarning size={14} />
                           </span>
                         )}

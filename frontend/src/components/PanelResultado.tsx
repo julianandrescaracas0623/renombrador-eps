@@ -1,15 +1,12 @@
 import type { ResumenArchivo } from '../api'
 import { IconWarning } from '../icons'
+import { AVISOS } from '../avisos'
 
 interface Props {
   resumen: ResumenArchivo[]
 }
 
 export default function PanelResultado({ resumen }: Props) {
-  const archivosConFacturasSinCuv = resumen.filter(
-    (item) => (item.facturas_sin_cuv ?? []).length > 0,
-  )
-
   const totalPdfs = resumen.reduce((acc, r) => acc + r.pdfs_totales, 0)
   const totalRenombrados = resumen.reduce((acc, r) => acc + r.pdfs_renombrados, 0)
   const totalConflictos = resumen.reduce((acc, r) => acc + (r.conflictos_duplicados ?? 0), 0)
@@ -60,25 +57,27 @@ export default function PanelResultado({ resumen }: Props) {
       </table>
       </div>
 
-      {archivosConFacturasSinCuv.length > 0 && (
-        <div className="aviso-cuv">
-          <strong>
-            <IconWarning size={16} /> Facturas sin CUV en el RIPS
-          </strong>
-          <p className="ayuda">
-            Estas facturas no traían el archivo CUV dentro del ZIP subido. Revísalas antes de
-            radicar en Horus.
-          </p>
-          <ul>
-            {archivosConFacturasSinCuv.map((item) => (
-              <li key={item.archivo}>
-                <span className="aviso-cuv-archivo">{item.archivo}:</span>{' '}
-                {(item.facturas_sin_cuv ?? []).join(', ')}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {AVISOS.map(({ campo, titulo, ayuda }) => {
+        const afectados = resumen.filter((item) => (item[campo] ?? []).length > 0)
+        if (afectados.length === 0) return null
+
+        return (
+          <div className="aviso-cuv" key={campo}>
+            <strong>
+              <IconWarning size={16} /> {titulo}
+            </strong>
+            <p className="ayuda">{ayuda}</p>
+            <ul>
+              {afectados.map((item) => (
+                <li key={item.archivo}>
+                  <span className="aviso-cuv-archivo">{item.archivo}:</span>{' '}
+                  {(item[campo] ?? []).join(', ')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
     </div>
   )
 }

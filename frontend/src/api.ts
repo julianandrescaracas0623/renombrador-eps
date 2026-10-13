@@ -1,7 +1,7 @@
 export interface EpsConfig {
   id: string
   nombre: string
-  modo_salida: 'unico' | 'soporte_rips'
+  modo_salida: 'unico' | 'soporte_rips' | 'carpetas'
   mapeo_default: Record<string, string>
 }
 
@@ -14,6 +14,12 @@ export interface ResumenArchivo {
   soporte_archivos?: number
   rips_archivos?: number
   facturas_sin_cuv?: string[]
+  facturas_sin_rips?: string[]
+  facturas_sin_fev?: string[]
+  facturas_sin_soportes?: string[]
+  facturas_totales?: number
+  xml_omitidos?: number
+  soportes_por_factura?: Record<string, number>
 }
 
 export interface ProcesarResponse {

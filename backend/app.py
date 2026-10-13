@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 
-from core import eps_config, jobs, modo_soporte_rips, modo_unico
+from core import eps_config, jobs, modo_carpetas, modo_soporte_rips, modo_unico
 from core.prefijos import parsear_mapeo
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -73,6 +73,19 @@ def procesar():
             contenedor.writestr("Sop.zip", resultado["soporte"])
             contenedor.writestr("Rips.zip", resultado["rips"])
 
+        resumen_por_archivo = resultado["resumenes"]
+    elif eps.modo_salida == "carpetas":
+        entradas = [
+            (secure_filename(archivo.filename or "archivo.zip"), archivo.read())
+            for archivo in archivos
+        ]
+
+        try:
+            resultado = modo_carpetas.procesar(entradas, mapeo)
+        except modo_carpetas.ZipInvalido as error:
+            return jsonify({"error": f"'{error.archivo}' no es un ZIP válido."}), 400
+
+        contenedor_buffer.write(resultado["contenido"])
         resumen_por_archivo = resultado["resumenes"]
     elif eps.modo_salida == "unico":
         with zipfile.ZipFile(contenedor_buffer, "w", zipfile.ZIP_DEFLATED) as contenedor:

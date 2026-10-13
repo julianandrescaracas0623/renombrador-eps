@@ -1,7 +1,8 @@
 """Registro de EPS soportadas. Agregar una EPS nueva = agregar una entrada aquí.
 
 modo_salida:
-  - "unico"         -> un solo ZIP renombrado (lógica de RENOMBRADOR-1.0.ipynb, hoy usada por SOS)
+  - "unico"         -> un solo ZIP renombrado (lógica de RENOMBRADOR-1.0.ipynb, sin EPS asignada hoy)
+  - "carpetas"      -> un ZIP con soportes/ (PDF), rips/ (JSON) y cuv/, sin XML (usado por SOS)
   - "soporte_rips"  -> separa PDF en Sop.zip y JSON/XML en Rips.zip,
                        cada factura en una carpeta con solo el número
                        (lógica de RENOMBRADOR-2.0.ipynb, hoy usada por FOMAG)
@@ -22,7 +23,7 @@ EPS_DISPONIBLES: dict[str, EpsConfig] = {
     "sos": EpsConfig(
         id="sos",
         nombre="SOS",
-        modo_salida="unico",
+        modo_salida="carpetas",
         mapeo_default={"SI": "FEV_900472731_SI"},
     ),
     "fomag": EpsConfig(

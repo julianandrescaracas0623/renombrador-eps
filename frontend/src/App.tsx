@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
-import { obtenerEps, procesarArchivos } from './api'
-import type { EpsConfig, ProcesarResponse } from './api'
+import { descargarResultado, eliminarResultado, obtenerEps, procesarArchivos, ResultadoExpirado } from './api'
+import type { EpsConfig } from './api'
 import SelectorEps from './components/SelectorEps'
 import EditorMapeo from './components/EditorMapeo'
 import type { ParPrefijo } from './components/EditorMapeo'
 import SubidaArchivos from './components/SubidaArchivos'
-import PanelResultado from './components/PanelResultado'
-import { IconMoon, IconSpinner, IconSun, IconWarning } from './icons'
+import Historial from './components/Historial'
+import ModalConfirmacion from './components/ModalConfirmacion'
+import type { EntradaHistorial } from './components/Historial'
+import { IconHistorial, IconMoon, IconSpinner, IconSun, IconTrash, IconWarning } from './icons'
 
 type Estado = 'cargando' | 'listo' | 'procesando' | 'error-inicial'
 type Tema = 'light' | 'dark'
@@ -22,6 +24,18 @@ function obtenerTemaInicial(): Tema {
 
   if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark'
   return 'light'
+}
+
+const CLAVE_HISTORIAL = 'historial'
+
+function cargarHistorial(): EntradaHistorial[] {
+  try {
+    const guardado = localStorage.getItem(CLAVE_HISTORIAL)
+    const lista: unknown = guardado ? JSON.parse(guardado) : []
+    return Array.isArray(lista) ? (lista as EntradaHistorial[]) : []
+  } catch {
+    return []
+  }
 }
 
 function mapeoAObjeto(pares: ParPrefijo[]): string {
@@ -43,8 +57,21 @@ export default function App() {
   const [epsSeleccionada, setEpsSeleccionada] = useState('')
   const [mapeo, setMapeo] = useState<ParPrefijo[]>([])
   const [archivos, setArchivos] = useState<File[]>([])
-  const [resultado, setResultado] = useState<ProcesarResponse | null>(null)
+  const [historial, setHistorial] = useState<EntradaHistorial[]>(cargarHistorial)
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  const [abierta, setAbierta] = useState<string | null>(null)
+  const [historialVisible, setHistorialVisible] = useState(false)
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState(false)
+  const [descargando, setDescargando] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(historial))
+    } catch {
+      // localStorage no disponible o lleno: el historial solo dura la sesión
+    }
+  }, [historial])
 
   useEffect(() => {
     document.documentElement.dataset.theme = tema
@@ -80,12 +107,10 @@ export default function App() {
     setEpsSeleccionada(id)
     const eps = epsList.find((e) => e.id === id)
     if (eps) setMapeo(objetoAMapeo(eps.mapeo_default))
-    setResultado(null)
   }
 
   async function procesar() {
     setError(null)
-    setResultado(null)
 
     if (archivos.length === 0) {
       setError('Sube al menos un archivo ZIP.')
@@ -96,7 +121,18 @@ export default function App() {
 
     try {
       const respuesta = await procesarArchivos(epsSeleccionada, mapeoAObjeto(mapeo), archivos)
-      setResultado(respuesta)
+      const ahora = Date.now()
+      const entrada: EntradaHistorial = {
+        id: respuesta.job_id,
+        fecha: new Date(ahora).toISOString(),
+        expira: new Date(ahora + respuesta.expira_en * 1000).toISOString(),
+        eps: respuesta.eps,
+        resumen: respuesta.resumen,
+      }
+      setHistorial((actual) => [entrada, ...actual])
+      setAbierta(entrada.id)
+      setHistorialVisible(true)
+      setArchivos([])
       setEstado('listo')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error inesperado.')
@@ -104,11 +140,43 @@ export default function App() {
     }
   }
 
-  function limpiarResultado() {
-    setResultado(null)
-    setArchivos([])
+  async function descargar(entrada: EntradaHistorial) {
     setError(null)
+    setDescargando(entrada.id)
+
+    try {
+      const { blob, nombre } = await descargarResultado(entrada.id)
+      const url = URL.createObjectURL(blob)
+      const enlace = document.createElement('a')
+      enlace.href = url
+      enlace.download = nombre
+      enlace.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      if (err instanceof ResultadoExpirado) {
+        setHistorial((actual) => actual.map((e) => (e.id === entrada.id ? { ...e, expirado: true } : e)))
+      }
+      setError(err instanceof Error ? err.message : 'No se pudo descargar.')
+    } finally {
+      setDescargando(null)
+    }
   }
+
+  function pedirEliminarSeleccionados() {
+    if (seleccionados.size > 0) setConfirmandoEliminar(true)
+  }
+
+  function eliminarSeleccionados() {
+    setConfirmandoEliminar(false)
+    seleccionados.forEach((id) => void eliminarResultado(id))
+    setHistorial((actual) => actual.filter((e) => !seleccionados.has(e.id)))
+    setSeleccionados(new Set())
+  }
+
+  const cantidadEliminar = seleccionados.size
+  const eliminaTodo = cantidadEliminar > 1 && cantidadEliminar === historial.length
+
+  const cerrarHistorial = useCallback(() => setHistorialVisible(false), [])
 
   const botonTema = (
     <button
@@ -143,8 +211,19 @@ export default function App() {
   }
 
   return (
-    <div className="contenedor">
+    <div className={`contenedor ${historialVisible ? 'con-historial' : ''}`}>
       {botonTema}
+
+      <button
+        type="button"
+        className="boton-historial"
+        onClick={() => setHistorialVisible((v) => !v)}
+        aria-expanded={historialVisible}
+      >
+        <IconHistorial size={17} />
+        Historial
+        {historial.length > 0 && <span className="boton-historial-contador">{historial.length}</span>}
+      </button>
 
       <header className="encabezado">
         <h1>Renombrador de soportes EPS</h1>
@@ -175,23 +254,55 @@ export default function App() {
           </p>
         )}
 
-        <button
-          type="button"
-          className="boton-principal"
-          onClick={procesar}
-          disabled={estado === 'procesando'}
-        >
-          {estado === 'procesando' ? (
-            <>
-              <IconSpinner size={18} /> Procesando…
-            </>
-          ) : (
-            'Procesar y generar descarga'
-          )}
-        </button>
+        <div className="acciones-principales">
+          <button
+            type="button"
+            className="boton-principal"
+            onClick={procesar}
+            disabled={estado === 'procesando'}
+          >
+            {estado === 'procesando' ? (
+              <>
+                <IconSpinner size={18} /> Procesando…
+              </>
+            ) : (
+              'Procesar y generar descarga'
+            )}
+          </button>
+          <button
+            type="button"
+            className="boton-eliminar"
+            onClick={pedirEliminarSeleccionados}
+            disabled={seleccionados.size === 0}
+            title="Selecciona procesos en el historial para eliminarlos"
+          >
+            <IconTrash size={17} />
+            Eliminar{seleccionados.size > 0 ? ` (${seleccionados.size})` : ''}
+          </button>
+        </div>
       </main>
 
-      {resultado && <PanelResultado resultado={resultado} onLimpiar={limpiarResultado} />}
+      <Historial
+        visible={historialVisible}
+        onCerrar={cerrarHistorial}
+        onEliminar={pedirEliminarSeleccionados}
+        entradas={historial}
+        seleccionados={seleccionados}
+        abierta={abierta}
+        descargando={descargando}
+        onSeleccionar={setSeleccionados}
+        onAbrir={setAbierta}
+        onDescargar={descargar}
+      />
+
+      <ModalConfirmacion
+        abierto={confirmandoEliminar}
+        titulo={eliminaTodo ? '¿Eliminar todo el historial?' : '¿Eliminar del historial?'}
+        mensaje={`Se ${cantidadEliminar === 1 ? 'borrará 1 proceso' : `borrarán ${cantidadEliminar} procesos`} y sus descargas dejarán de estar disponibles. Esta acción no se puede deshacer.`}
+        textoConfirmar={eliminaTodo ? 'Eliminar todo' : `Eliminar ${cantidadEliminar}`}
+        onConfirmar={eliminarSeleccionados}
+        onCancelar={() => setConfirmandoEliminar(false)}
+      />
     </div>
   )
 }

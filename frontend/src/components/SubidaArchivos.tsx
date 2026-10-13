@@ -58,7 +58,11 @@ export default function SubidaArchivos({ archivos, onCambiar }: Props) {
           accept=".zip"
           multiple
           hidden
-          onChange={(e) => agregarArchivos(e.target.files)}
+          onChange={(e) => {
+            agregarArchivos(e.target.files)
+            // Se reinicia para que volver a elegir el mismo ZIP dispare onChange
+            e.target.value = ''
+          }}
         />
       </div>
 

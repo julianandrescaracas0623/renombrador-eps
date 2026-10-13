@@ -97,6 +97,7 @@ def procesar():
             "job_id": job_id,
             "eps": eps.nombre,
             "resumen": resumen_por_archivo,
+            "expira_en": jobs.TTL_SEGUNDOS,
         }
     )
 
@@ -108,14 +109,18 @@ def descargar(job_id: str):
     if job is None:
         return jsonify({"error": "El resultado ya no está disponible, procesa de nuevo."}), 404
 
-    jobs.eliminar_job(job_id)
-
     return send_file(
-        io.BytesIO(job["bytes"]),
+        job["ruta"],
         mimetype="application/zip",
         as_attachment=True,
         download_name=job["nombre_archivo"],
     )
+
+
+@app.delete("/api/resultados/<job_id>")
+def eliminar_resultado(job_id: str):
+    jobs.eliminar_job(job_id)
+    return "", 204
 
 
 @app.get("/")

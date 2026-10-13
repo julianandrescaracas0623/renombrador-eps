@@ -20,6 +20,7 @@ export interface ProcesarResponse {
   job_id: string
   eps: string
   resumen: ResumenArchivo[]
+  expira_en: number
 }
 
 export interface ApiError {
@@ -60,6 +61,19 @@ export async function procesarArchivos(
   return res.json()
 }
 
-export function urlDescarga(jobId: string): string {
-  return `/api/descargar/${jobId}`
+export class ResultadoExpirado extends Error {}
+
+export async function descargarResultado(jobId: string): Promise<{ blob: Blob; nombre: string }> {
+  const res = await fetch(`/api/descargar/${jobId}`)
+  if (res.status === 404) throw new ResultadoExpirado('El resultado ya no está disponible en el servidor.')
+  if (!res.ok) return manejarError(res)
+
+  const disposicion = res.headers.get('Content-Disposition') ?? ''
+  const coincidencia = /filename="?([^";]+)"?/.exec(disposicion)
+  return { blob: await res.blob(), nombre: coincidencia?.[1] ?? 'resultado.zip' }
+}
+
+export async function eliminarResultado(jobId: string): Promise<void> {
+  // Si falla no importa: el servidor lo borra solo al expirar
+  await fetch(`/api/resultados/${jobId}`, { method: 'DELETE' }).catch(() => undefined)
 }

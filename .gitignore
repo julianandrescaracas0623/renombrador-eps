@@ -1,3 +1,4 @@
+.venv/
 backend/.venv/
 backend/__pycache__/
 backend/core/__pycache__/
@@ -9,5 +10,5 @@ RENOMBRADOR-2.0.ipynb
 REQUERIMIENTOS.md
 *.pyc
 
-# frontend/dist SÍ se versiona: PythonAnywhere free no necesita Node para
-# construirlo, solo Flask sirviendo el build ya generado (ver README).
+# frontend/dist SÍ se versiona: el servidor no necesita Node para
+# construirlo, Flask sirve el build ya generado (ver DESPLIEGUE.md).

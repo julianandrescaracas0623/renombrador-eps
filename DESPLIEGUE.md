@@ -1,16 +1,21 @@
-# Despliegue en PythonAnywhere
+# Despliegue en el VPS de Hostinger
 
-Flask (`backend/app.py`) sirve la API y el frontend ya compilado en `frontend/dist`. En el plan gratuito el servidor no tiene Node: el build se genera en la PC y se sube con el repositorio. La plantilla del WSGI está en `backend/wsgi_pythonanywhere.py`; el archivo que ejecuta PythonAnywhere es el de la pestaña Web.
+El sitio está publicado en **https://srv2182907.hstgr.cloud**, un VPS de Hostinger con Ubuntu 24.04 y 2 CPU, 8 GB de RAM y 96 GB de disco.
 
-Repositorio: `https://github.com/julianandrescaracas0623/renombrador-eps.git`.
+Una petición pasa por esta cadena:
 
-En los comandos, sustituye `TUUSUARIO` por tu usuario de PythonAnywhere. Esta guía usa la carpeta `renombrador-eps` (el nombre que deja `git clone`) y el virtualenv `renombrador`.
+```
+navegador ──HTTPS──> nginx (:80/:443) ──> gunicorn (127.0.0.1:8000) ──> Flask (backend/app.py)
+```
 
-## Actualizar un sitio que ya existe
+- **nginx** recibe el tráfico público, maneja el certificado HTTPS y reenvía todo a gunicorn. Su configuración está en `/etc/nginx/sites-available/renombrador-eps`.
+- **gunicorn** ejecuta la app Flask con 2 workers y 4 threads. Lo arranca el servicio systemd `renombrador-eps`, definido en `/etc/systemd/system/renombrador-eps.service`.
+- **Flask** atiende `/api/...` y también sirve el frontend ya compilado desde `frontend/dist`.
+- El código vive en `/home/julian/renombrador-eps`, en la rama `inicio`, con el virtualenv en `.venv/`.
 
-El clone, el virtualenv, el WSGI y la web app se quedan como están. Este es el ciclo de cada cambio.
+## Actualizar el sitio
 
-1. En la PC, si cambió la interfaz, genera el build:
+1. En la PC, si cambió la interfaz, genera el build y súbelo en el commit:
 
 ```bash
 cd frontend
@@ -18,90 +23,125 @@ npm install
 npm run build
 ```
 
-Eso actualiza `frontend/dist` (`index.html` y la carpeta `assets` con los nombres con hash). Hay que incluir ese build en el commit: el `.gitignore` lo deja versionado a propósito.
+`frontend/dist` se versiona a propósito, así el servidor no necesita Node.
 
-2. Haz commit y push de la rama que está en el servidor (`Develop` o `inicio`).
+2. Haz commit y push a la rama que está en el servidor (`inicio`).
 
-3. En una consola Bash de PythonAnywhere:
+3. En el VPS, conectado por SSH (`ssh julian@srv2182907.hstgr.cloud`):
 
 ```bash
 cd ~/renombrador-eps
 git pull
+# solo si cambió backend/requirements.txt:
+.venv/bin/pip install -r backend/requirements.txt
+sudo systemctl restart renombrador-eps
 ```
 
-4. Solo si cambió `backend/requirements.txt`:
+4. Comprueba que el sitio responde:
 
 ```bash
-workon renombrador
-pip install -r ~/renombrador-eps/backend/requirements.txt
+systemctl status renombrador-eps --no-pager
+curl -s https://srv2182907.hstgr.cloud/api/eps
 ```
 
-5. En la pestaña **Web**, pulsa **Reload**.
+Sin el `restart`, gunicorn sigue ejecutando el código anterior. Los ZIP generados no se pierden al reiniciar, porque se guardan en disco.
 
-Sin el Reload, el sitio sigue con el código anterior. Volver a clonar o a crear la web app solo hace falta si borraste la app, el entorno virtual o la carpeta del proyecto en el servidor.
+## Comandos útiles
 
-## Primera instalación
+| Para | Comando |
+|---|---|
+| Resumen de todo lo desplegado | `mis-proyectos` |
+| Estado del servicio | `systemctl status renombrador-eps` |
+| Reiniciar la app | `sudo systemctl restart renombrador-eps` |
+| Logs de la app en vivo | `journalctl -u renombrador-eps -f` |
+| Logs de nginx | `sudo tail -f /var/log/nginx/error.log` (o `access.log`) |
+| Validar y recargar nginx | `sudo nginx -t && sudo systemctl reload nginx` |
+| Ver certificados | `sudo certbot certificates` |
 
-1. Abre una consola **Bash** (pestaña Consoles) y clona la rama que quieras publicar:
+## HTTPS
+
+El certificado es de Let's Encrypt y está emitido para `srv2182907.hstgr.cloud`, el hostname que Hostinger asigna al VPS. Caduca cada 90 días y lo renueva solo el timer `certbot.timer`, que puedes revisar con `systemctl list-timers certbot.timer`. Las peticiones por HTTP se redirigen a HTTPS.
+
+Para usar un dominio propio:
+
+1. En el DNS del dominio, crea un registro `A` que apunte a `76.13.165.71`.
+2. Agrega el dominio a `server_name` en `/etc/nginx/sites-available/renombrador-eps`.
+3. Ejecuta `sudo certbot --nginx -d tudominio.com`.
+
+## Primera instalación (si hubiera que rehacer el servidor)
 
 ```bash
-cd ~
-git clone https://github.com/julianandrescaracas0623/renombrador-eps.git
-cd renombrador-eps
-git checkout Develop
+sudo apt install -y nginx certbot python3-certbot-nginx python3-venv git
+cd ~ && git clone https://github.com/julianandrescaracas0623/renombrador-eps.git
+cd renombrador-eps && git checkout inicio
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt gunicorn
 ```
 
-Si el repositorio es privado, GitHub pide un token de acceso personal.
+`gunicorn` no está en `requirements.txt` porque solo hace falta en el servidor. Después de instalar los paquetes:
 
-2. Crea el virtualenv con la misma versión de Python que vas a elegir en la web app. Anota esa versión en la pestaña Web (por ejemplo 3.12) y úsala aquí:
+1. Crea `/etc/systemd/system/renombrador-eps.service`:
+
+```ini
+[Unit]
+Description=Renombrador EPS (Flask + gunicorn)
+After=network.target
+
+[Service]
+User=julian
+Group=julian
+WorkingDirectory=/home/julian/renombrador-eps/backend
+ExecStart=/home/julian/renombrador-eps/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 300 --bind 127.0.0.1:8000 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
-mkvirtualenv renombrador --python=/usr/bin/python3.12
-pip install -r ~/renombrador-eps/backend/requirements.txt
+sudo systemctl daemon-reload && sudo systemctl enable --now renombrador-eps
 ```
 
-El prompt debe quedar `(renombrador)$`. Hoy el único paquete es `Flask==3.0.3`.
+2. Crea `/etc/nginx/sites-available/renombrador-eps`:
 
-3. En la pestaña **Web**, pulsa **Add a new web app**.
-
-- Dominio: `TUUSUARIO.pythonanywhere.com` (en el plan gratuito no hay otro).
-- Tipo: **Manual configuration**.
-- Python: la misma versión del paso anterior.
-
-4. En la sección **Virtualenv**, escribe `renombrador` y confirma. Debe resolverse a `/home/TUUSUARIO/.virtualenvs/renombrador`.
-
-5. Abre el enlace **WSGI configuration file** (queda en `/var/www/TUUSUARIO_pythonanywhere_com_wsgi.py`). Sustituye el ejemplo por esto, con tu usuario real:
-
-```python
-import sys
-
-path = "/home/TUUSUARIO/renombrador-eps/backend"
-if path not in sys.path:
-    sys.path.append(path)
-
-from app import app as application
+```nginx
+server {
+    listen 80;
+    server_name srv2182907.hstgr.cloud;
+    client_max_body_size 210M;
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_request_buffering off;
+    }
+}
 ```
 
-Esa ruta es obligatoria: `app.py` importa el paquete `core`, que vive dentro de `backend`, y busca el frontend en la carpeta hermana `frontend/dist`.
-
-6. Deja vacía la sección **Static files**. Flask atiende `/`, `/assets/...` y `/api/...`. Si mapeas `/` a una carpeta, esas rutas dejan de llegar a la API.
-
-7. Pulsa **Reload** y abre `https://TUUSUARIO.pythonanywhere.com`. La página debe cargar y, al elegir una EPS, responder `/api/eps`.
+```bash
+sudo ln -s /etc/nginx/sites-available/renombrador-eps /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable
+sudo certbot --nginx -d srv2182907.hstgr.cloud --redirect
+```
 
 ## Si la página falla
 
-En la pestaña **Web**, abre **Error log**. También está en `/var/log/TUUSUARIO.pythonanywhere.com.error.log`.
-
 | Síntoma | Qué revisar |
 |---|---|
-| `No module named 'app'` o `No module named 'core'` | La ruta del WSGI debe ser `/home/TUUSUARIO/renombrador-eps/backend`. |
-| `No module named 'flask'` | El virtualenv de la pestaña Web debe ser `renombrador`, y el `pip install` debe hacerse con ese entorno activo. |
-| Pantalla en blanco | En el servidor falta `frontend/dist/assets/`. El `index.html` apunta a archivos con hash; tienen que venir en el `git pull`. |
-| El ZIP no descarga | El resultado vive en memoria 10 minutos. Un Reload, o esperar más de eso, lo borra. Hay que procesar otra vez. |
+| `502 Bad Gateway` | gunicorn está caído. Revisa `systemctl status renombrador-eps` y `journalctl -u renombrador-eps -n 50`. |
+| `413 Request Entity Too Large` | La subida pasa de 200 MB (`MAX_CONTENT_LENGTH` en `backend/app.py`; nginx permite 210 MB). |
+| `504 Gateway Timeout` | El proceso tardó más de 300 s. Sube `--timeout` en el servicio y `proxy_read_timeout` en nginx. |
+| Pantalla en blanco | Falta `frontend/dist/assets/` en el servidor; el build tiene que venir en el `git pull`. |
+| El ZIP no descarga | Los resultados viven en `backend/resultados_tmp/` durante 24 h, con un máximo de 300 MB en total (`backend/core/jobs.py`). Pasado ese tiempo hay que procesar otra vez. |
+| Cambios que no aparecen | Faltó `sudo systemctl restart renombrador-eps` después del `git pull`. |
 
-## Límites del plan gratuito
+## Alternativa: PythonAnywhere
 
-- Un solo proceso. El ZIP se guarda en la memoria del mismo proceso que atendió `/api/procesar` y después `/api/descargar` (`backend/core/jobs.py`, 10 minutos).
-- Tope de subida de la app: 200 MB en total (`MAX_CONTENT_LENGTH` en `backend/app.py`).
-- Cuota diaria de CPU. Varios ZIP grandes pueden agotarla.
-- El Reload corta las descargas que aún no se hayan pedido.
+`backend/wsgi_pythonanywhere.py` sigue en el repositorio como plantilla por si algún día se publica allí. En ese caso, el archivo WSGI tiene que añadir `/home/USUARIO/renombrador-eps/backend` a `sys.path` y hacer `from app import app as application`.

@@ -1,17 +1,19 @@
-# Despliegue en el VPS de Hostinger
+# Despliegue en el VPS de Hostinger (Coolify)
 
-El sitio está publicado en **https://srv2182907.hstgr.cloud**, un VPS de Hostinger con Ubuntu 24.04 y 2 CPU, 8 GB de RAM y 96 GB de disco.
+El sitio está publicado en **https://renombrador.juliancaracas.dev**. También responde en `https://srv2182907.hstgr.cloud`, la dirección anterior.
+
+El VPS es de Hostinger: Ubuntu 24.04, 2 CPU, 8 GB de RAM y 96 GB de disco. Se administra con **Coolify** desde **https://panel.juliancaracas.dev**.
 
 Una petición pasa por esta cadena:
 
 ```
-navegador ──HTTPS──> nginx (:80/:443) ──> gunicorn (127.0.0.1:8000) ──> Flask (backend/app.py)
+navegador ──HTTPS──> coolify-proxy (Traefik, :80/:443) ──> contenedor renombrador-eps (:8000, gunicorn + Flask)
 ```
 
-- **nginx** recibe el tráfico público, maneja el certificado HTTPS y reenvía todo a gunicorn. Su configuración está en `/etc/nginx/sites-available/renombrador-eps`.
-- **gunicorn** ejecuta la app Flask con 2 workers y 4 threads. Lo arranca el servicio systemd `renombrador-eps`, definido en `/etc/systemd/system/renombrador-eps.service`.
-- **Flask** atiende `/api/...` y también sirve el frontend ya compilado desde `frontend/dist`.
-- El código vive en `/home/julian/renombrador-eps`, en la rama `inicio`, con el virtualenv en `.venv/`.
+- **Traefik** (`coolify-proxy`) recibe el tráfico, saca y renueva solo los certificados de Let's Encrypt y enruta cada dominio a su contenedor.
+- El **contenedor** se construye con el `Dockerfile` de este repo. Corre gunicorn con 2 workers y 4 threads, y sirve la API y `frontend/dist`.
+- **Coolify** clona el repo con una deploy key de solo lectura (`github-renombrador-eps`) desde la rama `inicio`.
+- `backend/resultados_tmp` vive en el volumen persistente `zsdtfahrlrgroo5zulvm7fic-resultados`. Los ZIP del historial sobreviven a los redespliegues.
 
 ## Actualizar el sitio
 
@@ -23,125 +25,47 @@ npm install
 npm run build
 ```
 
-`frontend/dist` se versiona a propósito, así el servidor no necesita Node.
+`frontend/dist` se versiona a propósito, así la imagen no necesita Node.
 
-2. Haz commit y push a la rama que está en el servidor (`inicio`).
+2. Haz commit y push a `Develop`, abre un PR y mergéalo en `inicio`.
 
-3. En el VPS, conectado por SSH (`ssh julian@srv2182907.hstgr.cloud`):
+3. En el panel, entra a **Projects → renombrador → production → renombrador-eps** y pulsa **Redeploy**. El despliegue tarda alrededor de un minuto y la versión anterior sigue en línea hasta que la nueva está lista.
 
-```bash
-cd ~/renombrador-eps
-git pull
-# solo si cambió backend/requirements.txt:
-.venv/bin/pip install -r backend/requirements.txt
-sudo systemctl restart renombrador-eps
-```
+## Dónde mirar
 
-4. Comprueba que el sitio responde:
-
-```bash
-systemctl status renombrador-eps --no-pager
-curl -s https://srv2182907.hstgr.cloud/api/eps
-```
-
-Sin el `restart`, gunicorn sigue ejecutando el código anterior. Los ZIP generados no se pierden al reiniciar, porque se guardan en disco.
-
-## Comandos útiles
-
-| Para | Comando |
+| Para | Dónde |
 |---|---|
-| Resumen de todo lo desplegado | `mis-proyectos` |
-| Estado del servicio | `systemctl status renombrador-eps` |
-| Reiniciar la app | `sudo systemctl restart renombrador-eps` |
-| Logs de la app en vivo | `journalctl -u renombrador-eps -f` |
-| Logs de nginx | `sudo tail -f /var/log/nginx/error.log` (o `access.log`) |
-| Validar y recargar nginx | `sudo nginx -t && sudo systemctl reload nginx` |
-| Ver certificados | `sudo certbot certificates` |
+| Estado, logs y redesplegar | Panel → la app → **Logs** / **Deployments** |
+| Resumen de todo el VPS | `mis-proyectos` en una terminal SSH |
+| Logs del contenedor desde SSH | `docker logs -f $(docker ps -qf name=zsdtfahrlrgroo5zulvm7fic)` |
+| Logs del proxy | `docker logs -f coolify-proxy` |
 
-## HTTPS
+## Agregar otro proyecto
 
-El certificado es de Let's Encrypt y está emitido para `srv2182907.hstgr.cloud`, el hostname que Hostinger asigna al VPS. Caduca cada 90 días y lo renueva solo el timer `certbot.timer`, que puedes revisar con `systemctl list-timers certbot.timer`. Las peticiones por HTTP se redirigen a HTTPS.
+El registro DNS comodín `*.juliancaracas.dev` ya apunta al VPS. Para publicar otro proyecto:
 
-Para usar un dominio propio:
-
-1. En el DNS del dominio, crea un registro `A` que apunte a `76.13.165.71`.
-2. Agrega el dominio a `server_name` en `/etc/nginx/sites-available/renombrador-eps`.
-3. Ejecuta `sudo certbot --nginx -d tudominio.com`.
-
-## Primera instalación (si hubiera que rehacer el servidor)
-
-```bash
-sudo apt install -y nginx certbot python3-certbot-nginx python3-venv git
-cd ~ && git clone https://github.com/julianandrescaracas0623/renombrador-eps.git
-cd renombrador-eps && git checkout inicio
-python3 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt gunicorn
-```
-
-`gunicorn` no está en `requirements.txt` porque solo hace falta en el servidor. Después de instalar los paquetes:
-
-1. Crea `/etc/systemd/system/renombrador-eps.service`:
-
-```ini
-[Unit]
-Description=Renombrador EPS (Flask + gunicorn)
-After=network.target
-
-[Service]
-User=julian
-Group=julian
-WorkingDirectory=/home/julian/renombrador-eps/backend
-ExecStart=/home/julian/renombrador-eps/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 300 --bind 127.0.0.1:8000 app:app
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now renombrador-eps
-```
-
-2. Crea `/etc/nginx/sites-available/renombrador-eps`:
-
-```nginx
-server {
-    listen 80;
-    server_name srv2182907.hstgr.cloud;
-    client_max_body_size 210M;
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_request_buffering off;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/renombrador-eps /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable
-sudo certbot --nginx -d srv2182907.hstgr.cloud --redirect
-```
+1. Agrega un `Dockerfile` al repo.
+2. Crea una deploy key en el panel (**Keys & Tokens → Private Keys**) y regístrala en GitHub: repo → **Settings → Deploy keys**.
+3. En el panel: **Projects → + Add → + New → Private Repository (with Deploy Key)**.
+4. Pon un dominio como `https://app2.juliancaracas.dev` y el puerto que exponga la app, y pulsa **Deploy**. El HTTPS es automático.
 
 ## Si la página falla
 
 | Síntoma | Qué revisar |
 |---|---|
-| `502 Bad Gateway` | gunicorn está caído. Revisa `systemctl status renombrador-eps` y `journalctl -u renombrador-eps -n 50`. |
-| `413 Request Entity Too Large` | La subida pasa de 200 MB (`MAX_CONTENT_LENGTH` en `backend/app.py`; nginx permite 210 MB). |
-| `504 Gateway Timeout` | El proceso tardó más de 300 s. Sube `--timeout` en el servicio y `proxy_read_timeout` en nginx. |
-| Pantalla en blanco | Falta `frontend/dist/assets/` en el servidor; el build tiene que venir en el `git pull`. |
-| El ZIP no descarga | Los resultados viven en `backend/resultados_tmp/` durante 24 h, con un máximo de 300 MB en total (`backend/core/jobs.py`). Pasado ese tiempo hay que procesar otra vez. |
-| Cambios que no aparecen | Faltó `sudo systemctl restart renombrador-eps` después del `git pull`. |
+| `404 page not found` (de Traefik) | El dominio de la app en Coolify no coincide con la URL, o el contenedor está detenido. |
+| `502 / Bad Gateway` | El contenedor no arrancó. Revisa los logs del despliegue en el panel. |
+| Certificado inválido | Revisa `docker logs coolify-proxy \| grep -i acme`. Normalmente lo resuelve reiniciar el proxy (`docker restart coolify-proxy`). |
+| `413 Request Entity Too Large` | La subida pasa de 200 MB (`MAX_CONTENT_LENGTH` en `backend/app.py`). |
+| Coolify dice que el servidor no es alcanzable | Revisa que fail2ban no haya bloqueado su IP interna (`sudo fail2ban-client status sshd`). Las redes `10.0.0.0/16` están en `/etc/fail2ban/jail.d/docker-ignore.local`. |
 
-## Alternativa: PythonAnywhere
+## Volver a la instalación anterior (nginx + systemd)
 
-`backend/wsgi_pythonanywhere.py` sigue en el repositorio como plantilla por si algún día se publica allí. En ese caso, el archivo WSGI tiene que añadir `/home/USUARIO/renombrador-eps/backend` a `sys.path` y hacer `from app import app as application`.
+La configuración previa sigue en el servidor, apagada: `/etc/nginx/sites-available/renombrador-eps` y `renombrador-eps.service` en el puerto 8001. Para volver a ella:
+
+```bash
+docker stop coolify-proxy
+sudo systemctl enable --now renombrador-eps nginx
+```
+
+`backend/wsgi_pythonanywhere.py` queda como plantilla por si algún día se publica en PythonAnywhere.

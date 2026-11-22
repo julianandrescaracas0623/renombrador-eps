@@ -9,21 +9,21 @@ dos), así que no se exige un conjunto fijo: se reporta cuántos trae cada factu
 que se avisa como faltante es lo obligatorio: la factura (FEV), el RIPS y el CUV.
 """
 
-import io
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import BinaryIO
 
 from .modo_soporte_rips import ZipInvalido, _carpeta_factura, _resolver_duplicado
 from .prefijos import detectar_omitir_epi, ordenar_prefijos, renombrar_stem
-from .zip_utils import zip_dir_a_bytes
+from .zip_utils import zip_dir_a_archivo
 
 EXTENSIONES_RIPS = (".json", ".txt")
 
 
 def _volcar(
-    zip_bytes: bytes,
+    origen: BinaryIO,
     prefijos_ordenados: list[tuple[str, str]],
     trabajo: Path,
     soportes_dir: Path,
@@ -34,7 +34,7 @@ def _volcar(
     usados_cuv: set[str],
     facturas: dict[str, dict],
 ) -> dict:
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+    with zipfile.ZipFile(origen) as z:
         extraido = Path(tempfile.mkdtemp(dir=trabajo))
         z.extractall(extraido)
 
@@ -124,8 +124,8 @@ def _avisos(facturas: dict[str, dict]) -> dict:
     }
 
 
-def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
-    """Junta todos los ZIP subidos en un solo ZIP con soportes/, rips/ y cuv/."""
+def procesar(entradas: list[tuple[str, BinaryIO]], mapeo: dict[str, str], destino: Path) -> dict:
+    """Junta todos los ZIP subidos en un solo ZIP (destino) con soportes/, rips/ y cuv/."""
     prefijos_ordenados = ordenar_prefijos(mapeo)
     resumenes = []
     facturas: dict[str, dict] = {}
@@ -146,10 +146,10 @@ def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
         usados_rips: set[str] = set()
         usados_cuv: set[str] = set()
 
-        for nombre_archivo, zip_bytes in entradas:
+        for nombre_archivo, origen in entradas:
             try:
                 resumen = _volcar(
-                    zip_bytes,
+                    origen,
                     prefijos_ordenados,
                     trabajo,
                     soportes_dir,
@@ -165,7 +165,7 @@ def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
 
             resumenes.append({"archivo": nombre_archivo, **resumen})
 
-        contenido = zip_dir_a_bytes(salida)
+        zip_dir_a_archivo(salida, destino)
 
     avisos = _avisos(facturas)
     # Los avisos son del lote completo (un RIPS puede venir en otro ZIP que sus soportes);
@@ -174,4 +174,4 @@ def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
     resumenes[0]["facturas_totales"] = len(facturas)
     resumenes[0]["soportes_por_factura"] = {f: i["soportes"] for f, i in sorted(facturas.items())}
 
-    return {"contenido": contenido, "resumenes": resumenes}
+    return {"resumenes": resumenes}

@@ -51,7 +51,7 @@ export default function SubidaArchivos({ archivos, onCambiar }: Props) {
         <p>
           <strong>Arrastra tus ZIP aquí</strong> o haz clic para seleccionarlos
         </p>
-        <span className="zona-drop-ayuda">Solo archivos .zip · hasta 200 MB en total</span>
+        <span className="zona-drop-ayuda">Solo archivos .zip · hasta 2,5 GB en total (unos 100 ZIP de 20 MB)</span>
         <input
           ref={inputRef}
           type="file"

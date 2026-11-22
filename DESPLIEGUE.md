@@ -56,7 +56,7 @@ El registro DNS comodín `*.juliancaracas.dev` ya apunta al VPS. Para publicar o
 | `404 page not found` (de Traefik) | El dominio de la app en Coolify no coincide con la URL, o el contenedor está detenido. |
 | `502 / Bad Gateway` | El contenedor no arrancó. Revisa los logs del despliegue en el panel. |
 | Certificado inválido | Revisa `docker logs coolify-proxy \| grep -i acme`. Normalmente lo resuelve reiniciar el proxy (`docker restart coolify-proxy`). |
-| `413 Request Entity Too Large` | La subida pasa de 200 MB (`MAX_CONTENT_LENGTH` en `backend/app.py`). |
+| `413 Request Entity Too Large` | La subida pasa de 2,5 GB (`MAX_CONTENT_MB` en `backend/app.py`). |
 | Coolify dice que el servidor no es alcanzable | Revisa que fail2ban no haya bloqueado su IP interna (`sudo fail2ban-client status sshd`). Las redes `10.0.0.0/16` están en `/etc/fail2ban/jail.d/docker-ignore.local`. |
 
 ## Volver a la instalación anterior (nginx + systemd)

@@ -1,4 +1,4 @@
-import io
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -12,7 +12,8 @@ FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 app = Flask(__name__, static_folder=None)
 
-MAX_CONTENT_MB = 200
+# 100 ZIP de hasta 20 MB = 2 GB, más margen.
+MAX_CONTENT_MB = 2500
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_MB * 1024 * 1024
 
 
@@ -55,55 +56,28 @@ def procesar():
     if not mapeo:
         return jsonify({"error": "El mapeo de prefijos no puede estar vacío."}), 400
 
-    contenedor_buffer = io.BytesIO()
-    resumen_por_archivo = []
+    # Werkzeug ya guardó cada archivo subido en un temporal en disco; se procesan desde
+    # ahí, uno a uno, y el resultado se escribe directo a disco. Así un lote de ~2 GB
+    # no pasa nunca entero por la memoria.
+    entradas = [
+        (secure_filename(archivo.filename or "archivo.zip"), archivo.stream)
+        for archivo in archivos
+    ]
+    salida = jobs.ruta_temporal()
 
-    if eps.modo_salida == "soporte_rips":
-        entradas = [
-            (secure_filename(archivo.filename or "archivo.zip"), archivo.read())
-            for archivo in archivos
-        ]
+    try:
+        resumen_por_archivo = _procesar_a_disco(eps.modo_salida, entradas, mapeo, salida)
+    except (modo_soporte_rips.ZipInvalido, modo_carpetas.ZipInvalido) as error:
+        salida.unlink(missing_ok=True)
+        return jsonify({"error": f"'{error.archivo}' no es un ZIP válido."}), 400
+    except ValueError as error:
+        salida.unlink(missing_ok=True)
+        return jsonify({"error": str(error)}), 500
+    except BaseException:
+        salida.unlink(missing_ok=True)
+        raise
 
-        try:
-            resultado = modo_soporte_rips.procesar(entradas, mapeo)
-        except modo_soporte_rips.ZipInvalido as error:
-            return jsonify({"error": f"'{error.archivo}' no es un ZIP válido."}), 400
-
-        with zipfile.ZipFile(contenedor_buffer, "w", zipfile.ZIP_DEFLATED) as contenedor:
-            contenedor.writestr("Sop.zip", resultado["soporte"])
-            contenedor.writestr("Rips.zip", resultado["rips"])
-
-        resumen_por_archivo = resultado["resumenes"]
-    elif eps.modo_salida == "carpetas":
-        entradas = [
-            (secure_filename(archivo.filename or "archivo.zip"), archivo.read())
-            for archivo in archivos
-        ]
-
-        try:
-            resultado = modo_carpetas.procesar(entradas, mapeo)
-        except modo_carpetas.ZipInvalido as error:
-            return jsonify({"error": f"'{error.archivo}' no es un ZIP válido."}), 400
-
-        contenedor_buffer.write(resultado["contenido"])
-        resumen_por_archivo = resultado["resumenes"]
-    elif eps.modo_salida == "unico":
-        with zipfile.ZipFile(contenedor_buffer, "w", zipfile.ZIP_DEFLATED) as contenedor:
-            for archivo in archivos:
-                nombre_original = secure_filename(archivo.filename or "archivo.zip")
-                base = Path(nombre_original).stem
-
-                try:
-                    resultado_bytes, resumen = modo_unico.procesar(archivo.read(), mapeo)
-                except zipfile.BadZipFile:
-                    return jsonify({"error": f"'{nombre_original}' no es un ZIP válido."}), 400
-
-                contenedor.writestr(f"{base}.zip", resultado_bytes)
-                resumen_por_archivo.append({"archivo": nombre_original, **resumen})
-    else:
-        return jsonify({"error": f"Modo de salida no soportado: {eps.modo_salida}"}), 500
-
-    job_id = jobs.crear_job(contenedor_buffer.getvalue(), f"resultado_{eps.id}.zip")
+    job_id = jobs.crear_job(salida, f"resultado_{eps.id}.zip")
 
     return jsonify(
         {
@@ -113,6 +87,45 @@ def procesar():
             "expira_en": jobs.TTL_SEGUNDOS,
         }
     )
+
+
+def _procesar_a_disco(modo_salida: str, entradas: list, mapeo: dict[str, str], salida: Path) -> list:
+    if modo_salida == "soporte_rips":
+        with tempfile.TemporaryDirectory(dir=salida.parent) as tmp:
+            soporte = Path(tmp) / "Sop.zip"
+            rips = Path(tmp) / "Rips.zip"
+            resultado = modo_soporte_rips.procesar(entradas, mapeo, soporte, rips)
+
+            with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as contenedor:
+                contenedor.write(soporte, "Sop.zip")
+                contenedor.write(rips, "Rips.zip")
+
+        return resultado["resumenes"]
+
+    if modo_salida == "carpetas":
+        return modo_carpetas.procesar(entradas, mapeo, salida)["resumenes"]
+
+    if modo_salida == "unico":
+        resumenes = []
+
+        with tempfile.TemporaryDirectory(dir=salida.parent) as tmp, zipfile.ZipFile(
+            salida, "w", zipfile.ZIP_DEFLATED
+        ) as contenedor:
+            for nombre_original, origen in entradas:
+                parcial = Path(tmp) / "parcial.zip"
+
+                try:
+                    resumen = modo_unico.procesar(origen, mapeo, parcial)
+                except zipfile.BadZipFile as error:
+                    raise modo_carpetas.ZipInvalido(nombre_original) from error
+
+                contenedor.write(parcial, f"{Path(nombre_original).stem}.zip")
+                parcial.unlink()
+                resumenes.append({"archivo": nombre_original, **resumen})
+
+        return resumenes
+
+    raise ValueError(f"Modo de salida no soportado: {modo_salida}")
 
 
 @app.get("/api/descargar/<job_id>")

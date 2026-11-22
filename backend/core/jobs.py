@@ -8,6 +8,7 @@ antiguos.
 """
 
 import json
+import os
 import re
 import threading
 import time
@@ -15,7 +16,8 @@ import uuid
 from pathlib import Path
 
 TTL_SEGUNDOS = 24 * 60 * 60
-_MAX_BYTES_TOTALES = 300 * 1024 * 1024
+# Lotes de hasta 100 ZIP de 20 MB dan resultados de ~2 GB; caben unos 10 en el historial.
+_MAX_BYTES_TOTALES = 20 * 1024 * 1024 * 1024
 _CARPETA = Path(__file__).parent.parent / "resultados_tmp"
 _ID_VALIDO = re.compile(r"^[0-9a-f]{32}$")
 _lock = threading.Lock()
@@ -29,12 +31,19 @@ def _ruta_meta(job_id: str) -> Path:
     return _CARPETA / f"{job_id}.json"
 
 
-def crear_job(zip_bytes: bytes, nombre_archivo: str) -> str:
+def ruta_temporal() -> Path:
+    """Archivo donde escribir un resultado en curso, en la misma carpeta (y disco) que los jobs."""
+    _CARPETA.mkdir(exist_ok=True)
+    return _CARPETA / f"{uuid.uuid4().hex}.part"
+
+
+def crear_job(ruta_resultado: Path, nombre_archivo: str) -> str:
+    """Registra un resultado ya escrito en disco (ver ruta_temporal) y lo mueve a su sitio."""
     job_id = uuid.uuid4().hex
 
     with _lock:
         _CARPETA.mkdir(exist_ok=True)
-        _ruta_zip(job_id).write_bytes(zip_bytes)
+        os.replace(ruta_resultado, _ruta_zip(job_id))
         _ruta_meta(job_id).write_text(
             json.dumps({"nombre_archivo": nombre_archivo, "creado": time.time()}),
             encoding="utf-8",
@@ -85,6 +94,14 @@ def _limpiar() -> None:
 
     ahora = time.time()
     vigentes = []
+
+    # Restos de procesos que se cortaron a mitad (reinicio, error) sin registrarse.
+    for parcial in _CARPETA.glob("*.part"):
+        try:
+            if ahora - parcial.stat().st_mtime > TTL_SEGUNDOS:
+                parcial.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     for meta_path in _CARPETA.glob("*.json"):
         job_id = meta_path.stem

@@ -6,15 +6,15 @@ Sop.zip y los JSON/XML (RIPS, CUV, factura) van sin cambios a Rips.zip. Dentro d
 paquete hay una carpeta por factura (SI30230) con sus archivos sueltos.
 """
 
-import io
 import re
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import BinaryIO
 
 from .prefijos import detectar_omitir_epi, ordenar_prefijos, renombrar_stem
-from .zip_utils import zip_dir_a_bytes
+from .zip_utils import zip_dir_a_archivo
 
 _SUFIJO_CARPETA = re.compile(r"[\s_-]*(?:soportes?|rips?)$", re.IGNORECASE)
 
@@ -86,7 +86,7 @@ def _resolver_duplicado(
 
 
 def _volcar(
-    zip_bytes: bytes,
+    origen: BinaryIO,
     prefijos_ordenados: list[tuple[str, str]],
     trabajo: Path,
     soporte_dir: Path,
@@ -95,7 +95,7 @@ def _volcar(
     usados_rips: set[str],
 ) -> dict:
     """Copia los archivos de un ZIP a las carpetas compartidas de Sop y Rips."""
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+    with zipfile.ZipFile(origen) as z:
         extraido = Path(tempfile.mkdtemp(dir=trabajo))
         z.extractall(extraido)
 
@@ -167,8 +167,13 @@ def _volcar(
     }
 
 
-def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
-    """Junta todos los ZIP subidos en un solo Sop.zip y un solo Rips.zip."""
+def procesar(
+    entradas: list[tuple[str, BinaryIO]],
+    mapeo: dict[str, str],
+    destino_soporte: Path,
+    destino_rips: Path,
+) -> dict:
+    """Junta todos los ZIP subidos en un solo Sop.zip y un solo Rips.zip, escritos en disco."""
     prefijos_ordenados = ordenar_prefijos(mapeo)
     resumenes = []
 
@@ -184,10 +189,10 @@ def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
         usados_sop: set[str] = set()
         usados_rips: set[str] = set()
 
-        for nombre_archivo, zip_bytes in entradas:
+        for nombre_archivo, origen in entradas:
             try:
                 resumen = _volcar(
-                    zip_bytes,
+                    origen,
                     prefijos_ordenados,
                     trabajo,
                     soporte_dir,
@@ -200,7 +205,7 @@ def procesar(entradas: list[tuple[str, bytes]], mapeo: dict[str, str]) -> dict:
 
             resumenes.append({"archivo": nombre_archivo, **resumen})
 
-        soporte_bytes = zip_dir_a_bytes(soporte_dir)
-        rips_bytes = zip_dir_a_bytes(rips_dir)
+        zip_dir_a_archivo(soporte_dir, destino_soporte)
+        zip_dir_a_archivo(rips_dir, destino_rips)
 
-    return {"soporte": soporte_bytes, "rips": rips_bytes, "resumenes": resumenes}
+    return {"resumenes": resumenes}
